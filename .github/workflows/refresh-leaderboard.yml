@@ -35,6 +35,21 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify collection token
+        env:
+          COLLECT_TOKEN: ${{ secrets.COLLECT_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$COLLECT_TOKEN" ]; then
+            echo "::error::COLLECT_GITHUB_TOKEN secret is not set on this repository."
+            echo "Fix:"
+            echo "  1. Create a classic personal access token at https://github.com/settings/tokens"
+            echo "     (scope: public_repo is sufficient — only public data is read)."
+            echo "  2. Repo → Settings → Secrets and variables → Actions →"
+            echo "     'New repository secret' → name it exactly COLLECT_GITHUB_TOKEN."
+            echo "  3. Re-run this workflow."
+            exit 1
+          fi
+
       - name: Discover users (no follower limit)
         run: node scripts/discover-users.mjs
         env:
