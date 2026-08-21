@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "discover": "node scripts/discover-users.mjs",
+    "fetch": "node scripts/fetch-contributions.mjs",
+    "rank": "node scripts/build-leaderboard.mjs",
+    "collect": "npm run discover && npm run fetch && npm run rank"
   },
   "dependencies": {
     "next": "16.3.1",

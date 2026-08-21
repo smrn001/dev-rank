@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Nepal DevRank
 
-## Getting Started
+A transparent leaderboard of the most active GitHub users in Nepal — like
+[committers.top/nepal_private](https://committers.top/nepal_private), but
+**without the follower limit**.
 
-First, run the development server:
+Where committers.top does:
+
+```
+githubUsers.sort(_.followers)
+           .filter(_.location == 'Nepal')
+           .take(1000)        // <-- follower gate: silently drops ~95% of devs
+           .sort(_.contributions)
+           .take(256)
+```
+
+…this project considers **every** GitHub account matching `location:nepal`
+and ranks all of them by total contributions (commits + PRs + issues + reviews +
+private contributions over the past year). Followers are displayed as a profile
+metric only and never affect the ranking.
+
+## How it works
+
+The GitHub Search API never returns more than 1,000 results per query, so the
+collector partitions the population into `followers:<lo>..<hi>` buckets small
+enough to fit (falling back to creation-date splits for saturated buckets,
+e.g. the 9,500+ Nepali accounts with zero followers). Contribution counts come
+from batched GraphQL `contributionsCollection` queries.
+
+```
+GitHub API → discover-users → fetch-contributions → build-leaderboard → data/*.json → Next.js UI
+```
+
+## Collecting data
+
+Requires `GITHUB_TOKEN` in `.env.local` (classic token; `public_repo` scope is
+enough — only public data is read).
+
+```bash
+npm run collect   # discover + fetch + rank (resumable; re-runs skip finished work)
+# or run each step:
+npm run discover  # -> data/users.json          (~21k users, ~5 min)
+npm run fetch     # -> data/contributions.json   (~10 min, checkpoints per batch)
+npm run rank      # -> data/leaderboard.json, data/rank_only.json
+```
+
+## Running the app
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) for the leaderboard.
+Machine-readable JSON: [`/api/developers`](http://localhost:3000/api/developers)
+(`?all=1` for everything, or `?page=2&perPage=50`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Hosting (GitHub + Vercel)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Push to GitHub** — the repo already lives at `github.com/smrn001/dev-rank`.
+   `data/leaderboard.json` and `data/rank_only.json` are committed so Vercel can
+   serve them; the big intermediates (`users.json`, `contributions.json`) are
+   gitignored.
 
-## Learn More
+2. **Deploy on Vercel** — at [vercel.com/new](https://vercel.com/new), import
+   `smrn001/dev-rank`. The Next.js preset is auto-detected; no environment
+   variables are needed to *serve* the site (the app never calls the GitHub API
+   per request — it reads the committed snapshot). Every push to `main`
+   redeploys automatically.
 
-To learn more about Next.js, take a look at the following resources:
+3. **Keep data fresh with GitHub Actions** —
+   `.github/workflows/refresh-leaderboard.yml` reruns the full pipeline daily,
+   commits updated snapshots, and the push triggers a Vercel redeploy.
+   One-time setup:
+   - Create a classic PAT ([github.com/settings/tokens](https://github.com/settings/tokens)) with `public_repo` scope.
+   - Add it as the repository secret `COLLECT_GITHUB_TOKEN`
+     (*Settings → Secrets and variables → Actions*).
+   - Run it once manually via *Actions → refresh-leaderboard → Run workflow*.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Rankings measure publicly observable GitHub activity — not developer quality.
+- Only public GitHub data is used; profiles link back to GitHub.
+- The ranking window is the past year (`contributionsCollection` default).

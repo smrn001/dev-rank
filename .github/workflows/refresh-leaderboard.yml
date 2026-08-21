@@ -1,0 +1,61 @@
+name: refresh-leaderboard
+
+# Regenerate the leaderboard from the live GitHub API and commit the updated
+# snapshots. Pushing data/leaderboard.json triggers a Vercel redeploy, so the
+# site stays current without any manual steps.
+#
+# Requires a repository secret COLLECT_GITHUB_TOKEN: a GitHub personal access
+# token (classic, public_repo scope is sufficient — only public data is read).
+# The builtin GITHUB_TOKEN has restricted Search/GraphQL limits and is not
+# enough for full-population discovery.
+
+on:
+  schedule:
+    - cron: "7 3 * * *" # daily at 03:07 UTC
+  workflow_dispatch: {} # allow manual runs
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-leaderboard
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Discover users (no follower limit)
+        run: node scripts/discover-users.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.COLLECT_GITHUB_TOKEN }}
+
+      - name: Fetch contributions
+        run: node scripts/fetch-contributions.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.COLLECT_GITHUB_TOKEN }}
+
+      - name: Build leaderboard
+        run: node scripts/build-leaderboard.mjs
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/leaderboard.json data/rank_only.json
+          if git diff --cached --quiet; then
+            echo "No changes to leaderboard data"
+          else
+            git commit -m "data: refresh leaderboard ($(date -u +%Y-%m-%d))"
+            git push
+          fi
