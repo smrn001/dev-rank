@@ -16,9 +16,9 @@
  */
 import { mkdir, writeFile, rename, readFile } from "node:fs/promises";
 import path from "node:path";
-import { graphql } from "./lib/github.mjs";
+import { graphql, GraphQLError } from "./lib/github.mjs";
 
-const BATCH_SIZE = 60;
+const BATCH_SIZE = 40;
 const DATA_DIR = path.join(process.cwd(), "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const OUT_FILE = path.join(DATA_DIR, "contributions.json");
@@ -104,6 +104,33 @@ function recordFromUser(login, node) {
   };
 }
 
+function isResourceLimitError(err) {
+  return (
+    err instanceof GraphQLError &&
+    err.errors.some((e) => e.type === "RESOURCE_LIMITS_EXCEEDED")
+  );
+}
+
+/**
+ * Fetch one batch, halving it automatically when GitHub's per-query resource
+ * budget is exceeded. Large batches stay fast; oversized ones degrade
+ * gracefully instead of failing.
+ */
+async function fetchBatch(logins) {
+  try {
+    return await graphql(buildBatchQuery(logins));
+  } catch (err) {
+    if (!isResourceLimitError(err) || logins.length === 1) throw err;
+    console.warn(
+      `  batch of ${logins.length} hit resource limits, splitting...`,
+    );
+    const mid = Math.floor(logins.length / 2);
+    const a = await fetchBatch(logins.slice(0, mid));
+    const b = await fetchBatch(logins.slice(mid));
+    return { ...a, ...b };
+  }
+}
+
 async function main() {
   const discovered = JSON.parse(await readFile(USERS_FILE, "utf8"));
   console.log(
@@ -124,8 +151,7 @@ async function main() {
   for (let i = 0; i < pending.length; i += BATCH_SIZE) {
     const batch = pending.slice(i, i + BATCH_SIZE);
     const logins = batch.map((u) => u.login);
-    const query = buildBatchQuery(logins);
-    const data = await graphql(query);
+    const data = await fetchBatch(logins);
 
     batch.forEach((user, j) => {
       const node = data[`u${j}`];

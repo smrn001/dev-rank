@@ -72,5 +72,9 @@ jobs:
             echo "No changes to leaderboard data"
           else
             git commit -m "data: refresh leaderboard ($(date -u +%Y-%m-%d))"
-            git push
+            # Retry once in case another writer pushed while we collected.
+            git push || {
+              git pull --rebase -X ours origin main
+              git push
+            }
           fi

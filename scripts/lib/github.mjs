@@ -154,7 +154,8 @@ export async function searchCount(query) {
 
 /**
  * Run one GraphQL document. Returns the `data` object. Retries on rate-limit
- * errors; throws loudly on non-retryable GraphQL errors (e.g. bad query).
+ * errors; throws GraphQLError (with `.errors`) on non-retryable GraphQL
+ * errors (e.g. bad query).
  */
 export async function graphql(query, variables = {}, { retries = 3 } = {}) {
   for (let attempt = 0; ; attempt += 1) {
@@ -184,6 +185,14 @@ export async function graphql(query, variables = {}, { retries = 3 } = {}) {
       await sleep(wait);
       continue;
     }
-    throw new Error("graphql errors: " + JSON.stringify(json.errors));
+    throw new GraphQLError(json.errors);
+  }
+}
+
+export class GraphQLError extends Error {
+  constructor(errors) {
+    super(`graphql errors: ${JSON.stringify(errors).slice(0, 500)}`);
+    this.name = "GraphQLError";
+    this.errors = errors;
   }
 }
